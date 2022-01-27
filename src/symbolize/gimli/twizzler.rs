@@ -53,7 +53,7 @@ impl Deref for Mmap {
 
 impl Mapping {
     pub fn new(id: &ObjID) -> Option<Mapping> {
-        let slot = twizzler_abi::slot::global_allocate();
+        let slot = twizzler_abi::slot::global_allocate()?;
         twizzler_abi::syscall::sys_object_map(
             *id,
             slot,
