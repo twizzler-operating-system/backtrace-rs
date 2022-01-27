@@ -181,6 +181,7 @@ cfg_if::cfg_if! {
                 target_env = "sgx",
                 target_vendor = "fortanix",
             ),
+            target_os = "twizzler",
         )
     )] {
         mod libunwind;
