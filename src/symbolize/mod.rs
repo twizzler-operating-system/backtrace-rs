@@ -139,11 +139,7 @@ impl<'a> ResolveWhat<'a> {
 // subtract one. Consumers should keep working and getting pretty good results,
 // so we should be good enough.
 fn adjust_ip(a: *mut c_void) -> *mut c_void {
-    if a.is_null() {
-        a
-    } else {
-        (a as usize - 1) as *mut c_void
-    }
+    if a.is_null() { a } else { (a as usize - 1) as *mut c_void }
 }
 
 /// Same as `resolve`, only unsafe as it's unsynchronized.
@@ -329,10 +325,7 @@ impl<'a> SymbolName<'a> {
     ///
     /// Use the `Display` implementation if you want the demangled version.
     pub fn as_str(&self) -> Option<&'a str> {
-        self.demangled
-            .as_ref()
-            .map(|s| s.as_str())
-            .or_else(|| str::from_utf8(self.bytes).ok())
+        self.demangled.as_ref().map(|s| s.as_str()).or_else(|| str::from_utf8(self.bytes).ok())
     }
 
     /// Returns the raw symbol name as a list of bytes
@@ -436,7 +429,7 @@ cfg_if::cfg_if! {
         mod dbghelp;
         use dbghelp as imp;
     } else if #[cfg(all(
-        any(unix, all(windows, target_env = "gnu")),
+        any(unix, target_os = "twizzler",  all(windows, target_env = "gnu")),
         not(target_vendor = "uwp"),
         not(target_os = "emscripten"),
         any(not(backtrace_in_libstd), feature = "backtrace"),
