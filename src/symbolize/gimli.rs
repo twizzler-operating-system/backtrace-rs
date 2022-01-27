@@ -45,6 +45,10 @@ cfg_if::cfg_if! {
     ))] {
         #[path = "gimli/mmap_unix.rs"]
         mod mmap;
+    } else if #[cfg(target_os = "twizzler")] {
+        #[path = "gimli/twizzler.rs"]
+        mod twizzler;
+        use twizzler as mmap;
     } else {
         #[path = "gimli/mmap_fake.rs"]
         mod mmap;
@@ -184,6 +188,7 @@ impl<'data> Context<'data> {
     }
 }
 
+#[cfg(not(target_os = "twizzler"))]
 fn mmap(path: &Path) -> Option<Mmap> {
     let file = File::open(path).ok()?;
     let len = file.metadata().ok()?.len().try_into().ok()?;
@@ -205,6 +210,9 @@ cfg_if::cfg_if! {
     } else if #[cfg(target_os = "aix")] {
         mod xcoff;
         use self::xcoff::{handle_split_dwarf, Object};
+    } else if #[cfg(target_os = "twizzler")] {
+        mod twizzler;
+        use self::twizzler::Object;
     } else {
         mod elf;
         use self::elf::{handle_split_dwarf, Object};
@@ -250,6 +258,8 @@ cfg_if::cfg_if! {
     } else if #[cfg(target_os = "aix")] {
         mod libs_aix;
         use libs_aix::native_libraries;
+    } else if #[cfg(target_os = "twizzler")] {
+        use twizzler::native_libraries;
     } else {
         // Everything else should doesn't know how to load native libraries.
         fn native_libraries() -> Vec<Library> {
@@ -276,6 +286,9 @@ struct Cache {
 }
 
 struct Library {
+    #[cfg(target_os = "twizzler")]
+    name: twizzler_abi::object::ObjID,
+    #[cfg(not(target_os = "twizzler"))]
     name: OsString,
     #[cfg(target_os = "aix")]
     /// On AIX, the library mmapped can be a member of a big-archive file.
@@ -323,10 +336,7 @@ pub unsafe fn clear_symbol_cache() {
 
 impl Cache {
     fn new() -> Cache {
-        Cache {
-            mappings: Vec::with_capacity(MAPPINGS_CACHE_SIZE),
-            libraries: native_libraries(),
-        }
+        Cache { mappings: Vec::with_capacity(MAPPINGS_CACHE_SIZE), libraries: native_libraries() }
     }
 
     // unsafe because this is required to be externally synchronized
@@ -447,11 +457,7 @@ pub unsafe fn resolve(what: ResolveWhat<'_>, cb: &mut dyn FnMut(&super::Symbol))
                     Some(f) => Some(f.name.slice()),
                     None => cx.object.search_symtab(addr as u64),
                 };
-                call(Symbol::Frame {
-                    addr: addr as *mut c_void,
-                    location: frame.location,
-                    name,
-                });
+                call(Symbol::Frame { addr: addr as *mut c_void, location: frame.location, name });
             }
         }
         if !any_frames {
@@ -470,10 +476,7 @@ pub unsafe fn resolve(what: ResolveWhat<'_>, cb: &mut dyn FnMut(&super::Symbol))
         }
         if !any_frames {
             if let Some(name) = cx.object.search_symtab(addr as u64) {
-                call(Symbol::Symtab {
-                    addr: addr as *mut c_void,
-                    name,
-                });
+                call(Symbol::Symtab { addr: addr as *mut c_void, name });
             }
         }
     });
@@ -482,11 +485,7 @@ pub unsafe fn resolve(what: ResolveWhat<'_>, cb: &mut dyn FnMut(&super::Symbol))
 pub enum Symbol<'a> {
     /// We were able to locate frame information for this symbol, and
     /// `addr2line`'s frame internally has all the nitty gritty details.
-    Frame {
-        addr: *mut c_void,
-        location: Option<addr2line::Location<'a>>,
-        name: Option<&'a [u8]>,
-    },
+    Frame { addr: *mut c_void, location: Option<addr2line::Location<'a>>, name: Option<&'a [u8]> },
     /// Couldn't find debug information, but we found it in the symbol table of
     /// the elf executable.
     Symtab { addr: *mut c_void, name: &'a [u8] },
