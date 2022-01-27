@@ -166,13 +166,9 @@ impl<'a> Object<'a> {
         let elf = Elf::parse(data).ok()?;
         let endian = elf.endian().ok()?;
         let sections = elf.sections(endian, data).ok()?;
-        let mut syms = sections
-            .symbols(endian, data, object::elf::SHT_SYMTAB)
-            .ok()?;
+        let mut syms = sections.symbols(endian, data, object::elf::SHT_SYMTAB).ok()?;
         if syms.is_empty() {
-            syms = sections
-                .symbols(endian, data, object::elf::SHT_DYNSYM)
-                .ok()?;
+            syms = sections.symbols(endian, data, object::elf::SHT_DYNSYM).ok()?;
         }
         let strings = syms.strings();
 
@@ -195,21 +191,11 @@ impl<'a> Object<'a> {
                 let address = sym.st_value(endian).into();
                 let size = sym.st_size(endian).into();
                 let name = sym.st_name(endian);
-                ParsedSym {
-                    address,
-                    size,
-                    name,
-                }
+                ParsedSym { address, size, name }
             })
             .collect::<Vec<_>>();
         syms.sort_unstable_by_key(|s| s.address);
-        Some(Object {
-            endian,
-            data,
-            sections,
-            strings,
-            syms,
-        })
+        Some(Object { endian, data, sections, strings, syms })
     }
 
     pub fn section(&self, stash: &'a Stash, name: &str) -> Option<&'a [u8]> {
@@ -275,9 +261,7 @@ impl<'a> Object<'a> {
     }
 
     fn section_header(&self, name: &str) -> Option<&<Elf as FileHeader>::SectionHeader> {
-        self.sections
-            .section_by_name(self.endian, name.as_bytes())
-            .map(|(_index, section)| section)
+        self.sections.section_by_name(self.endian, name.as_bytes()).map(|(_index, section)| section)
     }
 
     pub fn search_symtab(&self, addr: u64) -> Option<&[u8]> {
@@ -319,9 +303,7 @@ impl<'a> Object<'a> {
         let len = data.iter().position(|x| *x == 0)?;
         let filename = OsStr::from_bytes(&data[..len]);
         let offset = (len + 1 + 3) & !3;
-        let crc_bytes = data
-            .get(offset..offset + 4)
-            .and_then(|bytes| bytes.try_into().ok())?;
+        let crc_bytes = data.get(offset..offset + 4).and_then(|bytes| bytes.try_into().ok())?;
         let crc = u32::from_ne_bytes(crc_bytes);
         let path_debug = locate_debuglink(path, filename)?;
         Some((path_debug, crc))
