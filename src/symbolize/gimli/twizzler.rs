@@ -2,7 +2,8 @@ use super::mystd::ffi::{OsStr, OsString};
 use super::mystd::fs;
 use super::mystd::os::twizzler::ffi::{OsStrExt, OsStringExt};
 use super::Either;
-use super::{Context, Mapping, Stash, Vec};
+use super::{gimli, Context, Mapping, Stash, Vec, Endian, EndianSlice};
+use alloc::sync::Arc;
 use core::convert::{TryFrom, TryInto};
 use core::ops::Deref;
 use core::slice;
@@ -11,7 +12,7 @@ use object::elf::{ELFCOMPRESS_ZLIB, ELF_NOTE_GNU, NT_GNU_BUILD_ID, SHF_COMPRESSE
 use object::read::elf::{CompressionHeader, FileHeader, SectionHeader, SectionTable, Sym};
 use object::read::StringTable;
 use object::{BigEndian, Bytes, NativeEndian};
-use twizzler_abi::object::ObjID;
+use twizzler_runtime_api::ObjID;
 
 #[cfg(target_pointer_width = "32")]
 type Elf = object::elf::FileHeader32<NativeEndian>;
@@ -20,13 +21,14 @@ type Elf = object::elf::FileHeader64<NativeEndian>;
 
 pub(super) fn native_libraries() -> Vec<super::Library> {
     let mut ret = Vec::new();
-    let exeid = twizzler_abi::exec::get_current_exe_id();
-    if let Some(exeid) = exeid {
+    let runtime = twizzler_runtime_api::get_runtime();
+    let exeid = runtime.get_exeid();
+    if let Some(exeid) = exeid.map(|e| runtime.get_library(e)).flatten() {
         let mut segments = Vec::new();
         let mut idx = 0;
-        while let Some(seg) = twizzler_abi::exec::get_segment(exeid, idx) {
+        while let Some(seg) = runtime.get_library_segment(&exeid, idx) {
             segments.push(super::LibrarySegment {
-                stated_virtual_memory_address: seg.vaddr,
+                stated_virtual_memory_address: seg.start,
                 len: seg.len,
             });
             idx += 1;
@@ -39,7 +41,7 @@ pub(super) fn native_libraries() -> Vec<super::Library> {
 
 pub struct Mmap {
     ptr: *mut u8,
-    slot: usize,
+    handle: twizzler_runtime_api::ObjectHandle,
     len: usize,
 }
 
@@ -52,21 +54,14 @@ impl Deref for Mmap {
 }
 
 impl Mapping {
-    pub fn new(id: &ObjID) -> Option<Mapping> {
-        let slot = twizzler_abi::slot::global_allocate()?;
-        twizzler_abi::syscall::sys_object_map(
-            None,
-            *id,
-            slot,
-            twizzler_abi::object::Protections::READ,
-            twizzler_abi::syscall::MapFlags::empty(),
-        )
-        .ok()?; //TODO (twizzler): deallocate slot
-        let (start, end) = twizzler_abi::slot::to_vaddr_range(slot);
-        let map = Mmap { ptr: start as *mut u8, slot, len: end - start };
+    pub fn new(lib: &twizzler_runtime_api::Library) -> Option<Mapping> {
+        let runtime = twizzler_runtime_api::get_runtime();
+        let mapping = runtime.get_full_mapping(&lib)?;
+        let (start, end) = lib.range;
+        let map = Mmap { ptr: start as *mut u8, handle: mapping, len: unsafe {end.offset_from(start)}.try_into().unwrap() };
         Mapping::mk_or_other(map, |map, stash| {
             let object = Object::parse(&map)?;
-            Context::new(stash, object, None).map(Either::B)
+            Context::new(stash, object, None, None).map(Either::B)
         })
     }
 }
@@ -235,4 +230,14 @@ fn decompress_zlib(input: &[u8], output: &mut [u8]) -> Option<()> {
     } else {
         None
     }
+}
+
+pub(super) fn handle_split_dwarf<'data>(
+    _package: Option<&gimli::DwarfPackage<EndianSlice<'data, Endian>>>,
+    _stash: &'data Stash,
+    _load: addr2line::SplitDwarfLoad<EndianSlice<'data, Endian>>,
+) -> Option<Arc<gimli::Dwarf<EndianSlice<'data, Endian>>>> {
+
+    // TODO (dbittman): Add support
+    None
 }
