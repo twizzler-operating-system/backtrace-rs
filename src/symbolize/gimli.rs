@@ -211,8 +211,7 @@ cfg_if::cfg_if! {
         mod xcoff;
         use self::xcoff::{handle_split_dwarf, Object};
     } else if #[cfg(target_os = "twizzler")] {
-        mod twizzler;
-        use self::twizzler::Object;
+        use self::twizzler::{handle_split_dwarf, Object};
     } else {
         mod elf;
         use self::elf::{handle_split_dwarf, Object};
@@ -287,7 +286,7 @@ struct Cache {
 
 struct Library {
     #[cfg(target_os = "twizzler")]
-    name: twizzler_abi::object::ObjID,
+    name: twizzler_runtime_api::Library,
     #[cfg(not(target_os = "twizzler"))]
     name: OsString,
     #[cfg(target_os = "aix")]
