@@ -2,7 +2,7 @@ use super::mystd::ffi::{OsStr, OsString};
 use super::mystd::fs;
 use super::mystd::os::twizzler::ffi::{OsStrExt, OsStringExt};
 use super::Either;
-use super::{gimli, Context, Mapping, Stash, Vec, Endian, EndianSlice};
+use super::{gimli, Context, Endian, EndianSlice, Mapping, Stash, Vec};
 use alloc::sync::Arc;
 use core::convert::{TryFrom, TryInto};
 use core::ops::Deref;
@@ -22,18 +22,20 @@ type Elf = object::elf::FileHeader64<NativeEndian>;
 pub(super) fn native_libraries() -> Vec<super::Library> {
     let mut ret = Vec::new();
     let runtime = twizzler_runtime_api::get_runtime();
-    let exeid = runtime.get_exeid();
-    if let Some(exeid) = exeid.map(|e| runtime.get_library(e)).flatten() {
+    let mut id = runtime.get_exeid();
+    while let Some(lib) = id.and_then(|e| runtime.get_library(e)) {
         let mut segments = Vec::new();
         let mut idx = 0;
-        while let Some(seg) = runtime.get_library_segment(&exeid, idx) {
+        let bias = lib.dl_info.map(|info| info.addr).unwrap_or(0);
+        while let Some(seg) = runtime.get_library_segment(&lib, idx) {
             segments.push(super::LibrarySegment {
-                stated_virtual_memory_address: seg.start,
+                stated_virtual_memory_address: seg.start - bias,
                 len: seg.len,
             });
             idx += 1;
         }
-        let lib = super::Library { name: exeid, segments, bias: 0 };
+        let lib = super::Library { name: lib, segments, bias };
+        id = lib.name.next_id;
         ret.push(lib);
     }
     return ret;
@@ -58,7 +60,11 @@ impl Mapping {
         let runtime = twizzler_runtime_api::get_runtime();
         let mapping = runtime.get_full_mapping(&lib)?;
         let (start, end) = lib.range;
-        let map = Mmap { ptr: start as *mut u8, handle: mapping, len: unsafe {end.offset_from(start)}.try_into().unwrap() };
+        let map = Mmap {
+            ptr: start as *mut u8,
+            handle: mapping,
+            len: unsafe { end.offset_from(start) }.try_into().unwrap(),
+        };
         Mapping::mk_or_other(map, |map, stash| {
             let object = Object::parse(&map)?;
             Context::new(stash, object, None, None).map(Either::B)
@@ -237,7 +243,6 @@ pub(super) fn handle_split_dwarf<'data>(
     _stash: &'data Stash,
     _load: addr2line::SplitDwarfLoad<EndianSlice<'data, Endian>>,
 ) -> Option<Arc<gimli::Dwarf<EndianSlice<'data, Endian>>>> {
-
     // TODO (dbittman): Add support
     None
 }
