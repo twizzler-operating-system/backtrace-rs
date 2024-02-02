@@ -59,12 +59,7 @@ impl Mapping {
     pub fn new(lib: &twizzler_runtime_api::Library) -> Option<Mapping> {
         let runtime = twizzler_runtime_api::get_runtime();
         let mapping = runtime.get_full_mapping(&lib)?;
-        let (start, end) = lib.range;
-        let map = Mmap {
-            ptr: start as *mut u8,
-            handle: mapping,
-            len: unsafe { end.offset_from(start) }.try_into().unwrap(),
-        };
+        let map = Mmap { ptr: lib.range.start as *mut u8, handle: mapping, len: lib.range.len };
         Mapping::mk_or_other(map, |map, stash| {
             let object = Object::parse(&map)?;
             Context::new(stash, object, None, None).map(Either::B)
