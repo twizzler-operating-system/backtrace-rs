@@ -35,7 +35,7 @@ pub(super) fn native_libraries() -> Vec<super::Library> {
             idx += 1;
         }
         let lib = super::Library { name: lib, segments, bias };
-        id = lib.name.next_id;
+        let id = id.and_then(|id| runtime.next_library_id(id));
         ret.push(lib);
     }
     return ret;
