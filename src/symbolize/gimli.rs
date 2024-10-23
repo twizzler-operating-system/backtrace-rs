@@ -278,7 +278,7 @@ struct Cache {
 
 struct Library {
     #[cfg(target_os = "twizzler")]
-    name: twizzler_runtime_api::Library,
+    name: twizzler_rt_abi::debug::LoadedImage,
     #[cfg(not(target_os = "twizzler"))]
     name: OsString,
     #[cfg(target_os = "aix")]
@@ -314,7 +314,13 @@ fn create_mapping(lib: &Library) -> Option<Mapping> {
     Mapping::new(name.as_ref(), member_name)
 }
 
-#[cfg(not(target_os = "aix"))]
+#[cfg(target_os = "twizzler")]
+fn create_mapping(lib: &Library) -> Option<Mapping> {
+    let name = &lib.name;
+    Mapping::new(name)
+}
+
+#[cfg(not(any(target_os = "aix", target_os = "twizzler")))]
 fn create_mapping(lib: &Library) -> Option<Mapping> {
     let name = &lib.name;
     Mapping::new(name.as_ref())
