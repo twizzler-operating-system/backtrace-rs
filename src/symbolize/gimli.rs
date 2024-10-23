@@ -283,7 +283,7 @@ struct Cache {
 
 struct Library {
     #[cfg(target_os = "twizzler")]
-    name: twizzler_runtime_api::Library,
+    name: twizzler_rt_abi::debug::LoadedImage,
     #[cfg(not(target_os = "twizzler"))]
     name: OsString,
     #[cfg(target_os = "android")]
