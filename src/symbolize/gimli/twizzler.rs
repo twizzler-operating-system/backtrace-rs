@@ -12,7 +12,9 @@ use object::elf::{ELFCOMPRESS_ZLIB, ELF_NOTE_GNU, NT_GNU_BUILD_ID, SHF_COMPRESSE
 use object::read::elf::{CompressionHeader, FileHeader, SectionHeader, SectionTable, Sym};
 use object::read::StringTable;
 use object::{BigEndian, Bytes, NativeEndian};
-use twizzler_runtime_api::ObjID;
+
+use twizzler_rt_abi::{object::ObjID, object::ObjectHandle, debug::LoadedImage, debug::LoadedImageId};
+
 
 #[cfg(target_pointer_width = "32")]
 type Elf = object::elf::FileHeader32<NativeEndian>;
@@ -21,10 +23,11 @@ type Elf = object::elf::FileHeader64<NativeEndian>;
 
 pub(super) fn native_libraries() -> Vec<super::Library> {
     let mut ret = Vec::new();
-    let runtime = twizzler_runtime_api::get_runtime();
-    let mut id = runtime.get_exeid();
-    while let Some(lib) = id.and_then(|e| runtime.get_library(e)) {
+    let mut id = twizzler_rt_abi::debug::TWZ_RT_EXEID;
+    while let Some(lib) = twizzler_rt_abi::debug::twz_rt_get_loaded_image(id) {
         let mut segments = Vec::new();
+        let bias = todo!();
+        /*
         let mut idx = 0;
         let bias = lib.dl_info.map(|info| info.addr).unwrap_or(0);
         while let Some(seg) = runtime.get_library_segment(&lib, idx) {
@@ -34,8 +37,9 @@ pub(super) fn native_libraries() -> Vec<super::Library> {
             });
             idx += 1;
         }
+        */
         let lib = super::Library { name: lib, segments, bias };
-        id = id.and_then(|id| runtime.next_library_id(id));
+        id += 1;
         ret.push(lib);
     }
     return ret;
@@ -43,7 +47,7 @@ pub(super) fn native_libraries() -> Vec<super::Library> {
 
 pub struct Mmap {
     ptr: *mut u8,
-    handle: twizzler_runtime_api::ObjectHandle,
+    handle: ObjectHandle,
     len: usize,
 }
 
@@ -56,10 +60,8 @@ impl Deref for Mmap {
 }
 
 impl Mapping {
-    pub fn new(lib: &twizzler_runtime_api::Library) -> Option<Mapping> {
-        let runtime = twizzler_runtime_api::get_runtime();
-        let mapping = runtime.get_full_mapping(&lib)?;
-        let map = Mmap { ptr: lib.range.start as *mut u8, handle: mapping, len: lib.range.len };
+    pub fn new(lib: &LoadedImage) -> Option<Mapping> {
+        let map = Mmap { ptr: lib.image_start() as *mut u8, handle: lib.handle().clone(), len: lib.image_len() };
         Mapping::mk_or_other(map, |map, stash| {
             let object = Object::parse(&map)?;
             Context::new(stash, object, None, None).map(Either::B)
