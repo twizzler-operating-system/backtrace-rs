@@ -46,7 +46,7 @@ pub(super) fn native_libraries() -> Vec<super::Library> {
 }
 
 pub struct Mmap {
-    ptr: *mut u8,
+    ptr: *const u8,
     handle: ObjectHandle,
     len: usize,
 }
@@ -55,13 +55,13 @@ impl Deref for Mmap {
     type Target = [u8];
 
     fn deref(&self) -> &[u8] {
-        unsafe { core::slice::from_raw_parts(self.ptr as *const u8, self.len) }
+        unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
     }
 }
 
 impl Mapping {
     pub fn new(lib: &LoadedImage) -> Option<Mapping> {
-        let map = Mmap { ptr: lib.image_start() as *mut u8, handle: lib.handle().clone(), len: lib.image_len() };
+        let map = Mmap { ptr: lib.image().as_ptr(), handle: lib.handle().clone(), len: lib.image().len() };
         Mapping::mk_or_other(map, |map, stash| {
             let object = Object::parse(&map)?;
             Context::new(stash, object, None, None).map(Either::B)
