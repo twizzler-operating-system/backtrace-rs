@@ -277,9 +277,6 @@ struct Cache {
 }
 
 struct Library {
-    #[cfg(target_os = "twizzler")]
-    name: twizzler_rt_abi::debug::LoadedImage,
-    #[cfg(not(target_os = "twizzler"))]
     name: OsString,
     #[cfg(target_os = "aix")]
     /// On AIX, the library mmapped can be a member of a big-archive file.
@@ -288,6 +285,9 @@ struct Library {
     /// to use the `libbar.so` library. In this case, only `libbar.so` is
     /// mmapped, not the whole `libfoo.a`.
     member_name: OsString,
+    /// On Twizzler, we need to own the returned pointers, so keep the LoadedImage around.
+    #[cfg(target_os = "twizzler")]
+    image: twizzler_rt_abi::debug::LoadedImage,
     /// Segments of this library loaded into memory, and where they're loaded.
     segments: Vec<LibrarySegment>,
     /// The "bias" of this library, typically where it's loaded into memory.
@@ -316,8 +316,7 @@ fn create_mapping(lib: &Library) -> Option<Mapping> {
 
 #[cfg(target_os = "twizzler")]
 fn create_mapping(lib: &Library) -> Option<Mapping> {
-    let name = &lib.name;
-    Mapping::new(name)
+    Mapping::new(&lib.image)
 }
 
 #[cfg(not(any(target_os = "aix", target_os = "twizzler")))]

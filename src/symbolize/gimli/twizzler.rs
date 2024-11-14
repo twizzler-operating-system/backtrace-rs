@@ -8,7 +8,7 @@ use core::convert::{TryFrom, TryInto};
 use core::ops::Deref;
 use core::slice;
 use core::str;
-use object::elf::{ELFCOMPRESS_ZLIB, ELF_NOTE_GNU, NT_GNU_BUILD_ID, SHF_COMPRESSED};
+use object::elf::{ELFCOMPRESS_ZLIB, ELF_NOTE_GNU, NT_GNU_BUILD_ID, SHF_COMPRESSED, ProgramHeader64};
 use object::read::elf::{CompressionHeader, FileHeader, SectionHeader, SectionTable, Sym};
 use object::read::StringTable;
 use object::{BigEndian, Bytes, NativeEndian};
@@ -25,22 +25,33 @@ pub(super) fn native_libraries() -> Vec<super::Library> {
     let mut ret = Vec::new();
     let mut id = twizzler_rt_abi::debug::TWZ_RT_EXEID;
     while let Some(lib) = twizzler_rt_abi::debug::twz_rt_get_loaded_image(id) {
-        let mut segments = Vec::new();
-        let bias = todo!();
-        /*
-        let mut idx = 0;
-        let bias = lib.dl_info.map(|info| info.addr).unwrap_or(0);
-        while let Some(seg) = runtime.get_library_segment(&lib, idx) {
-            segments.push(super::LibrarySegment {
-                stated_virtual_memory_address: seg.start - bias,
-                len: seg.len,
-            });
-            idx += 1;
-        }
-        */
-        let lib = super::Library { name: lib, segments, bias };
+        let headers = if lib.dl_info().phdr.is_null() || lib.dl_info().phnum == 0 {
+            &[]
+        } else {
+            // SAFETY: We just checked for nullness or 0-len slices
+            unsafe { slice::from_raw_parts(lib.dl_info().phdr.cast::<ProgramHeader64<NativeEndian>>(), lib.dl_info().phnum as usize) }
+        };
+        // this fallback works even if we are main, because some platforms give the name anyways
+        let name =
+        if lib.dl_info().name.is_null() {
+            OsString::new()
+        } else {
+            // SAFETY: we just checked for nullness
+            OsStr::from_bytes(unsafe { core::ffi::CStr::from_ptr(lib.dl_info().name) }.to_bytes()).to_owned()
+        };
+        ret.push(super::Library {
+            name,
+            segments: headers
+                .iter()
+                .map(|header| super::LibrarySegment {
+                    len: (*header).p_memsz.get(NativeEndian) as usize,
+                    stated_virtual_memory_address: (*header).p_vaddr.get(NativeEndian) as usize,
+                })
+                .collect(),
+            bias: lib.dl_info().addr as usize,
+            image: lib,
+        });
         id += 1;
-        ret.push(lib);
     }
     return ret;
 }
@@ -69,6 +80,7 @@ impl Mapping {
     }
 }
 
+#[derive(Debug)]
 struct ParsedSym {
     address: u64,
     size: u64,
