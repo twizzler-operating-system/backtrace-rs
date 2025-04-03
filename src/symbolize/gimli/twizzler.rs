@@ -1,20 +1,21 @@
-use super::mystd::ffi::{OsStr, OsString};
-use super::mystd::fs;
-use super::mystd::os::twizzler::ffi::{OsStrExt, OsStringExt};
-use super::Either;
-use super::{gimli, Context, Endian, EndianSlice, Mapping, Stash, Vec};
 use alloc::sync::Arc;
 use core::convert::{TryFrom, TryInto};
 use core::ops::Deref;
-use core::slice;
-use core::str;
-use object::elf::{ELFCOMPRESS_ZLIB, ELF_NOTE_GNU, NT_GNU_BUILD_ID, SHF_COMPRESSED, ProgramHeader64};
-use object::read::elf::{CompressionHeader, FileHeader, SectionHeader, SectionTable, Sym};
+use core::{slice, str};
+
+use object::elf::{
+    ELF_NOTE_GNU, ELFCOMPRESS_ZLIB, NT_GNU_BUILD_ID, ProgramHeader64, SHF_COMPRESSED,
+};
 use object::read::StringTable;
+use object::read::elf::{CompressionHeader, FileHeader, SectionHeader, SectionTable, Sym};
 use object::{BigEndian, Bytes, NativeEndian};
+use twizzler_rt_abi::debug::{LoadedImage, LoadedImageId};
+use twizzler_rt_abi::object::{ObjID, ObjectHandle};
 
-use twizzler_rt_abi::{object::ObjID, object::ObjectHandle, debug::LoadedImage, debug::LoadedImageId};
-
+use super::mystd::ffi::{OsStr, OsString};
+use super::mystd::fs;
+use super::mystd::os::twizzler::ffi::{OsStrExt, OsStringExt};
+use super::{Context, Either, Endian, EndianSlice, Mapping, Stash, Vec, gimli};
 
 #[cfg(target_pointer_width = "32")]
 type Elf = object::elf::FileHeader32<NativeEndian>;
@@ -29,15 +30,20 @@ pub(super) fn native_libraries() -> Vec<super::Library> {
             &[]
         } else {
             // SAFETY: We just checked for nullness or 0-len slices
-            unsafe { slice::from_raw_parts(lib.dl_info().phdr.cast::<ProgramHeader64<NativeEndian>>(), lib.dl_info().phnum as usize) }
+            unsafe {
+                slice::from_raw_parts(
+                    lib.dl_info().phdr.cast::<ProgramHeader64<NativeEndian>>(),
+                    lib.dl_info().phnum as usize,
+                )
+            }
         };
         // this fallback works even if we are main, because some platforms give the name anyways
-        let name =
-        if lib.dl_info().name.is_null() {
+        let name = if lib.dl_info().name.is_null() {
             OsString::new()
         } else {
             // SAFETY: we just checked for nullness
-            OsStr::from_bytes(unsafe { core::ffi::CStr::from_ptr(lib.dl_info().name) }.to_bytes()).to_owned()
+            OsStr::from_bytes(unsafe { core::ffi::CStr::from_ptr(lib.dl_info().name) }.to_bytes())
+                .to_owned()
         };
         ret.push(super::Library {
             name,
@@ -71,8 +77,12 @@ impl Deref for Mmap {
 }
 
 impl Mapping {
-    pub fn new(lib: &LoadedImage) -> Option<Mapping> {
-        let map = Mmap { ptr: lib.image().as_ptr(), handle: lib.handle().clone(), len: lib.image().len() };
+    pub fn new_twizzler(lib: &LoadedImage) -> Option<Mapping> {
+        let map = Mmap {
+            ptr: lib.image().as_ptr(),
+            handle: lib.handle().clone(),
+            len: lib.image().len(),
+        };
         Mapping::mk_or_other(map, |map, stash| {
             let object = Object::parse(&map)?;
             Context::new(stash, object, None, None).map(Either::B)
@@ -227,11 +237,11 @@ impl<'a> Object<'a> {
 }
 
 fn decompress_zlib(input: &[u8], output: &mut [u8]) -> Option<()> {
+    use miniz_oxide::inflate::TINFLStatus;
     use miniz_oxide::inflate::core::inflate_flags::{
         TINFL_FLAG_PARSE_ZLIB_HEADER, TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF,
     };
-    use miniz_oxide::inflate::core::{decompress, DecompressorOxide};
-    use miniz_oxide::inflate::TINFLStatus;
+    use miniz_oxide::inflate::core::{DecompressorOxide, decompress};
 
     let (status, in_read, out_read) = decompress(
         &mut DecompressorOxide::new(),

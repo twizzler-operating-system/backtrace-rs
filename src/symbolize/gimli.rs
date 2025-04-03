@@ -2,21 +2,21 @@
 //!
 //! This is the default symbolication implementation for Rust.
 
-use self::gimli::read::EndianSlice;
-use self::gimli::NativeEndian as Endian;
-use self::mmap::Mmap;
-use self::stash::Stash;
-use super::BytesOrWideString;
-use super::ResolveWhat;
-use super::SymbolName;
-use addr2line::gimli;
 use core::convert::TryInto;
 use core::mem;
+
+use addr2line::gimli;
 use libc::c_void;
 use mystd::ffi::OsString;
 use mystd::fs::File;
 use mystd::path::Path;
 use mystd::prelude::v1::*;
+
+use self::gimli::NativeEndian as Endian;
+use self::gimli::read::EndianSlice;
+use self::mmap::Mmap;
+use self::stash::Stash;
+use super::{BytesOrWideString, ResolveWhat, SymbolName};
 
 #[cfg(backtrace_in_libstd)]
 mod mystd {
@@ -152,10 +152,8 @@ impl<'data> Context<'data> {
             package = Some(
                 gimli::DwarfPackage::load(
                     |id| -> Result<_, gimli::Error> {
-                        let data = id
-                            .dwo_name()
-                            .and_then(|name| dwp.section(stash, name))
-                            .unwrap_or(&[]);
+                        let data =
+                            id.dwo_name().and_then(|name| dwp.section(stash, name)).unwrap_or(&[]);
                         Ok(EndianSlice::new(data, Endian))
                     },
                     EndianSlice::new(&[], Endian),
@@ -164,11 +162,7 @@ impl<'data> Context<'data> {
             );
         }
 
-        Some(Context {
-            dwarf,
-            object,
-            package,
-        })
+        Some(Context { dwarf, object, package })
     }
 
     fn find_frames(
@@ -330,6 +324,8 @@ fn create_mapping(lib: &Library) -> Option<Mapping> {
             Mapping::new(lib.name.as_ref(), &lib.member_name)
         } else if #[cfg(target_os = "android")] {
             Mapping::new_android(lib.name.as_ref(), lib.zip_offset)
+        } else if #[cfg(target_os = "twizzler")] {
+            Mapping::new_twizzler(&lib.image)
         } else {
             Mapping::new(lib.name.as_ref())
         }
@@ -360,10 +356,7 @@ pub unsafe fn clear_symbol_cache() {
 
 impl Cache {
     fn new() -> Cache {
-        Cache {
-            mappings: Lru::default(),
-            libraries: native_libraries(),
-        }
+        Cache { mappings: Lru::default(), libraries: native_libraries() }
     }
 
     // unsafe because this is required to be externally synchronized
